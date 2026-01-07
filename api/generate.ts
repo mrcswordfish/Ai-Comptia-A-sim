@@ -95,161 +95,154 @@ async function callOpenAI(model: string, items: PlanItem[], difficulty: Difficul
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("Missing OPENAI_API_KEY (set it in Vercel project environment variables).");
 
-  // JSON schema for strict structured output
-  const schema = {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      items: {
-        type: "array",
-        minItems: items.length,
-        maxItems: items.length,
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            // discriminator
-            type: { type: "string", enum: ["single", "multi", "pbq-order", "pbq-match"] },
+  const contract = [
+    "Return STRICT JSON (no markdown, no code fences).",
+    "Top-level must be: {\"items\": [...]}",
+    "items must have exactly " + items.length + " elements.",
+    "Each item MUST include:",
+    "- type: one of 'single' | 'multi' | 'pbq-order' | 'pbq-match'",
+    "- domain: string (e.g., '1.0 Mobile Devices')",
+    "- objectiveId: string (e.g., '1.1')",
+    "- objectiveTitle: string",
+    "- objectiveBullets: string[]",
+    "- prompt: string",
+    "- explanation: string",
+    "",
+    "Type-specific fields:",
+    "- single/multi: options: string[4..6], correctIndices: int[1..3] (0-based, within options length)",
+    "- pbq-order: orderItems: string[4..8], correctOrder: int[] (0-based permutation same length as orderItems)",
+    "- pbq-match: left: string[3..8], right: string[3..8], correctPairs: {leftIndex:int,rightIndex:int}[]",
+    "",
+    "Do not include any additional top-level keys besides 'items'.",
+  ].join("\n");
 
-            // objective tagging
-            domain: { type: "string" },
-            objectiveId: { type: "string" },
-            objectiveTitle: { type: "string" },
-            objectiveBullets: { type: "array", items: { type: "string" } },
-
-            // stem + rationale
-            prompt: { type: "string" },
-            explanation: { type: "string" },
-
-            // MCQ / multi-select
-            options: { type: "array", minItems: 4, maxItems: 6, items: { type: "string" } },
-            correctIndices: { type: "array", minItems: 1, maxItems: 3, items: { type: "integer", minimum: 0, maximum: 5 } },
-
-            // PBQ order
-            orderItems: { type: "array", minItems: 4, maxItems: 8, items: { type: "string" } },
-            correctOrder: { type: "array", minItems: 4, maxItems: 8, items: { type: "integer", minimum: 0, maximum: 7 } },
-
-            // PBQ match
-            leftLabel: { type: "string" },
-            rightLabel: { type: "string" },
-            left: { type: "array", minItems: 3, maxItems: 6, items: { type: "string" } },
-            right: { type: "array", minItems: 3, maxItems: 6, items: { type: "string" } },
-            correctPairs: {
-              type: "array",
-              minItems: 3,
-              maxItems: 6,
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  leftIndex: { type: "integer", minimum: 0, maximum: 5 },
-                  rightIndex: { type: "integer", minimum: 0, maximum: 5 }
-                },
-                required: ["leftIndex", "rightIndex"]
-              }
-            }
-          },
-          required: ["type", "domain", "objectiveId", "objectiveTitle", "objectiveBullets", "prompt", "explanation"]
-        }
-      }
-    },
-    required: ["items"]
-  };
-
-  const system = [
+  const baseSystem = [
     "You are a CompTIA A+ (220-1201 / 220-1202) item writer.",
     "Write ORIGINAL practice questions aligned to the provided objective. Do NOT reproduce copyrighted exam content.",
     "Keep prompts concise and realistic (help-desk / technician scenarios).",
     "Difficulty rules:",
-    "Output rules per type:",
-    "- single: include options (4-6) and correctIndices with exactly 1 index.",
-    "- multi: include options (4-6) and correctIndices with 2-3 indices.",
-    "- pbq-order: include orderItems (4-8) and correctOrder as index order over orderItems.",
-    "- pbq-match: include leftLabel/rightLabel, left/right lists, and correctPairs (index pairs).",
     "- easy: straightforward, minimal ambiguity; distractors clearly wrong; no tricky wording.",
     "- medium: exam-like; moderate scenario detail; plausible distractors; one clear best answer.",
     "- hard: deeper reasoning within the objective; closer distractors; multi-step scenarios; avoid trick questions.",
-    "For single-choice: exactly 4 options and exactly 1 correct index.",
-    "For multi-select: exactly 4 options and 2-3 correct indices.",
-    "For PBQs:",
-    "- pbq-order: provide 4-7 steps and a correctOrder that references orderItems indices in correct sequence.",
-    "- pbq-match: provide left/right lists and correctPairs mapping leftIndex->rightIndex.",
-    "Return strictly valid JSON matching the schema."
-  ].join("\n");
+    "",
+    "Output format requirements:",
+    contract,
+  ];
 
-  const user = {
+  const userPayload = {
     purpose: "Generate a batch of CompTIA A+ practice questions.",
     difficulty,
     items: items.map((it) => ({
       type: it.type,
-      domain: `${it.domainNumber} ${it.domainLabel}`,
+      domain: `${it.domainNumber} ${it.domainLabel}`.trim(),
       objectiveId: it.objectiveId,
       objectiveTitle: it.objectiveTitle,
-      objectiveBullets: it.objectiveBullets.slice(0, 20)
-    }))
+      objectiveBullets: it.objectiveBullets,
+    })),
   };
 
-  const body = {
-    model,
-    input: [
-      { role: "system", content: system },
-      { role: "user", content: JSON.stringify(user) }
-    ],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "a_plus_question_batch",
-        strict: true,
-        schema: schema
-      }
+  function extractJsonObject(text: string) {
+    const first = text.indexOf("{");
+    const last = text.lastIndexOf("}");
+    if (first === -1 || last === -1 || last <= first) {
+      throw new Error("Model did not return a JSON object.");
     }
-  };
-
-  const resp = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${key}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(body)
-  });
-
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => "");
-    throw new Error(`OpenAI error ${resp.status}: ${errText || resp.statusText}`);
+    const slice = text.slice(first, last + 1);
+    return JSON.parse(slice);
   }
 
-  const data: any = await resp.json();
+  function validateBatch(obj: any) {
+    if (!obj || typeof obj !== "object" || Array.isArray(obj)) throw new Error("Top-level JSON must be an object.");
+    const keys = Object.keys(obj);
+    if (!(keys.length === 1 && keys[0] === "items")) throw new Error("Top-level must contain only 'items'.");
+    if (!Array.isArray(obj.items)) throw new Error("'items' must be an array.");
+    if (obj.items.length !== items.length) throw new Error(`'items' length ${obj.items.length} !== expected ${items.length}.`);
 
-  // Extract JSON text safely from Responses output
-  let text = "";
-  if (typeof data.output_text === "string") {
-    text = data.output_text;
-  } else if (Array.isArray(data.output)) {
-    for (const o of data.output) {
-      const content = o?.content;
-      if (Array.isArray(content)) {
-        for (const c of content) {
-          if (typeof c?.text === "string") {
-            text += c.text;
-          } else if (typeof c?.output_text === "string") {
-            text += c.output_text;
+    for (const q of obj.items) {
+      if (!q || typeof q !== "object") throw new Error("Each item must be an object.");
+      const reqBase = ["type", "domain", "objectiveId", "objectiveTitle", "objectiveBullets", "prompt", "explanation"];
+      for (const k of reqBase) {
+        if (!(k in q)) throw new Error(`Missing required field '${k}'.`);
+      }
+      if (!["single", "multi", "pbq-order", "pbq-match"].includes(q.type)) throw new Error("Invalid type.");
+      if (!Array.isArray(q.objectiveBullets)) throw new Error("objectiveBullets must be an array of strings.");
+
+      if (q.type === "single" || q.type === "multi") {
+        if (!Array.isArray(q.options) || q.options.length < 4 || q.options.length > 6) throw new Error("options must be 4..6 strings.");
+        if (!Array.isArray(q.correctIndices) || q.correctIndices.length < 1 || q.correctIndices.length > 3) throw new Error("correctIndices must be 1..3 integers.");
+      } else if (q.type === "pbq-order") {
+        if (!Array.isArray(q.orderItems) || q.orderItems.length < 4 || q.orderItems.length > 8) throw new Error("orderItems must be 4..8 strings.");
+        if (!Array.isArray(q.correctOrder) || q.correctOrder.length !== q.orderItems.length) throw new Error("correctOrder length must match orderItems length.");
+      } else if (q.type === "pbq-match") {
+        if (!Array.isArray(q.left) || q.left.length < 3 || q.left.length > 8) throw new Error("left must be 3..8 strings.");
+        if (!Array.isArray(q.right) || q.right.length < 3 || q.right.length > 8) throw new Error("right must be 3..8 strings.");
+        if (!Array.isArray(q.correctPairs) || q.correctPairs.length < 1) throw new Error("correctPairs must be a non-empty array.");
+      }
+    }
+    return obj.items as any[];
+  }
+
+  const endpoint = "https://api.openai.com/v1/responses";
+
+  let lastErr: any = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const system = [...baseSystem];
+    if (attempt === 1 && lastErr) {
+      system.push("", "Your previous output was invalid.", `Fix the JSON and re-output per contract. Error: ${String(lastErr).slice(0, 500)}`);
+    }
+
+    const body = {
+      model,
+      input: [
+        { role: "system", content: [{ type: "input_text", text: system.join("\n") }] },
+        { role: "user", content: [{ type: "input_text", text: JSON.stringify(userPayload) }] },
+      ],
+      temperature: 0.6,
+      max_output_tokens: 3500,
+    };
+
+    const resp = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => "");
+      throw new Error(`OpenAI error ${resp.status}: ${errText || resp.statusText}`);
+    }
+
+    const data: any = await resp.json();
+
+    // Extract text from Responses output
+    let text = "";
+    if (typeof data.output_text === "string") {
+      text = data.output_text;
+    } else if (Array.isArray(data.output)) {
+      for (const o of data.output) {
+        const content = o?.content;
+        if (Array.isArray(content)) {
+          for (const c of content) {
+            if (c?.type === "output_text" && typeof c.text === "string") text += c.text;
           }
         }
       }
     }
+
+    try {
+      const obj = extractJsonObject(text);
+      const itemsOut = validateBatch(obj);
+      return itemsOut;
+    } catch (e: any) {
+      lastErr = e?.message || String(e);
+    }
   }
 
-  // Some structured responses may include parsed JSON directly
-  if (!text && data?.output?.[0]?.content?.[0]?.text) text = data.output[0].content[0].text;
-
-  const parsed = typeof data?.output?.[0]?.content?.[0]?.parsed === "object" ? data.output[0].content[0].parsed : null;
-
-  const jsonObj = parsed ?? (text ? JSON.parse(text) : null);
-  if (!jsonObj?.items) throw new Error("Model returned no items.");
-  return jsonObj.items;
+  throw new Error(`Model returned invalid JSON after retries: ${String(lastErr)}`);
 }
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return json(res, 405, { error: "Method Not Allowed" });
   if (!enforceRateLimit(req, res)) return;
