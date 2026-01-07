@@ -231,8 +231,6 @@ function buildPBQQuestion(core: CoreId, sessionId: string, baseId: string, objec
 
   // correct is encoded as "LeftText=>RightText" (matches UI encoding)
   const correctPairs = pairs.map(([l, r]) => `${l}=>${r}`);
-    return `${leftIds[i]}=${rid}`;
-  });
 
   return {
     id: `${sessionId}-${baseId}`,

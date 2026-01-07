@@ -338,7 +338,7 @@ async function startNewSession(selectedCore: CoreId) {
     runGeneration(g);
   }
 
-  function openReview() {() {
+  function openReview() {
     setScreen("review");
   }
 

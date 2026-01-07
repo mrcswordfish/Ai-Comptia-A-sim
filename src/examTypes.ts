@@ -30,7 +30,6 @@ export type Question = {
         right: { id: string; text: string }[];
       };
 };
-};
 
 export type Difficulty = "easy" | "medium" | "hard";
 
