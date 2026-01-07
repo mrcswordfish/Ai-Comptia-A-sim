@@ -1,12 +1,4 @@
-im
-function loadGeneration(): GenerationPersisted | null {
-  return readJson<GenerationPersisted | null>(GENERATION_KEY, null);
-}
-function saveGeneration(g: GenerationPersisted | null) {
-  if (!g) localStorage.removeItem(GENERATION_KEY);
-  else writeJson(GENERATION_KEY, g);
-}
-port React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { CoreId } from "./objectives";
 import { readJson, writeJson } from "./storage";
 import { recordAttempt } from "./analytics";
@@ -18,6 +10,7 @@ import { generateQuestions } from "./aiClient";
 
 type Screen = "setup" | "generating" | "exam" | "review" | "results" | "analytics";
 const SESSION_KEY = "comptia_a_session_ai_v1";
+const GENERATION_KEY = "comptia_a_generation_v1";
 
 type Persisted = {
   screen: Screen;
@@ -45,6 +38,15 @@ type GenerationPersisted = {
   createdAt: string; // ISO
   lastError?: string;
 };
+
+
+function loadGeneration(): GenerationPersisted | null {
+  return readJson<GenerationPersisted | null>(GENERATION_KEY, null);
+}
+function saveGeneration(g: GenerationPersisted | null) {
+  if (!g) localStorage.removeItem(GENERATION_KEY);
+  else writeJson(GENERATION_KEY, g);
+}
 
 function formatTime(secs: number) {
   const m = Math.floor(secs / 60);
@@ -299,7 +301,7 @@ async function startNewSession(selectedCore: CoreId) {
     runGeneration(g);
   }
 
-  function openReview() {() {
+  function openReview() {
     setScreen("review");
   }
 

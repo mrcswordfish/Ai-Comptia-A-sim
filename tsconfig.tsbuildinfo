@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/aiClient.ts","./src/analytics.ts","./src/examTypes.ts","./src/main.tsx","./src/objectives.generated.ts","./src/objectives.ts","./src/scoring.ts","./src/sessionPlanner.ts","./src/storage.ts","./src/components/AnalyticsDashboard.tsx","./src/components/Sparkline.tsx"],"errors":true,"version":"5.8.3"}
