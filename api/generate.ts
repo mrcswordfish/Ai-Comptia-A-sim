@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { createHash } from "crypto";
 
 type Difficulty = "easy" | "medium" | "hard";
 
@@ -267,12 +268,22 @@ async function callOpenAI(model: string, items: PlanItem[], difficulty: Difficul
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return json(res, 405, { error: "Method Not Allowed" });
+  if (!enforceRateLimit(req, res)) return;
 
   try {
     const body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body as any);
+
     const model = "gpt-4o-mini"; // locked per app requirements
+    const core = String(body?.core || "");
+    const generationId = typeof body?.generationId === "string" ? body.generationId : null;
+    const batchIndex = typeof body?.batchIndex === "number" ? body.batchIndex : null;
+
+    const diffRaw = String(body?.difficulty || "medium") as Difficulty;
+    const diff: Difficulty = (diffRaw === "easy" || diffRaw === "medium" || diffRaw === "hard") ? diffRaw : "medium";
+
     const items = safeArray(body?.items) as PlanItem[];
 
+    if (!core) return json(res, 400, { error: "Missing core." });
     if (!items.length) return json(res, 400, { error: "No items provided." });
     if (items.length > 20) return json(res, 400, { error: "Too many items in one request; batch <= 20." });
 
@@ -282,7 +293,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!it.type) throw new Error("Invalid plan item (missing type).");
     }
 
-    const cacheKey = sha256(JSON.stringify({ core, items, diff, generationId: generationId || null, batchIndex: typeof batchIndex === "number" ? batchIndex : null }));
+    const cacheKey = sha256(
+      JSON.stringify({
+        core,
+        items,
+        diff,
+        generationId,
+        batchIndex,
+      })
+    );
+
     const cached = cacheGet<any[]>(cacheKey);
     if (cached) {
       res.setHeader("X-Cache", "HIT");
@@ -297,3 +317,4 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return json(res, 500, { error: e?.message || String(e) });
   }
 }
+
