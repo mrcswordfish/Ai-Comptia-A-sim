@@ -105,72 +105,51 @@ async function callOpenAI(model: string, items: PlanItem[], difficulty: Difficul
         minItems: items.length,
         maxItems: items.length,
         items: {
-          oneOf: [
-            {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                type: { enum: ["single", "multi"] },
-                domain: { type: "string" },
-                objectiveId: { type: "string" },
-                objectiveTitle: { type: "string" },
-                objectiveBullets: { type: "array", items: { type: "string" } },
-                prompt: { type: "string" },
-                options: { type: "array", minItems: 4, maxItems: 4, items: { type: "string" } },
-                correctIndices: { type: "array", minItems: 1, maxItems: 3, items: { type: "integer", minimum: 0, maximum: 3 } },
-                explanation: { type: "string" }
-              },
-              required: ["type","domain","objectiveId","objectiveTitle","objectiveBullets","prompt","options","correctIndices","explanation"]
-            },
-            {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                type: { const: "pbq-order" },
-                domain: { type: "string" },
-                objectiveId: { type: "string" },
-                objectiveTitle: { type: "string" },
-                objectiveBullets: { type: "array", items: { type: "string" } },
-                prompt: { type: "string" },
-                orderItems: { type: "array", minItems: 4, maxItems: 7, items: { type: "string" } },
-                correctOrder: { type: "array", minItems: 4, maxItems: 7, items: { type: "integer", minimum: 0, maximum: 6 } },
-                explanation: { type: "string" }
-              },
-              required: ["type","domain","objectiveId","objectiveTitle","objectiveBullets","prompt","orderItems","correctOrder","explanation"]
-            },
-            {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                type: { const: "pbq-match" },
-                domain: { type: "string" },
-                objectiveId: { type: "string" },
-                objectiveTitle: { type: "string" },
-                objectiveBullets: { type: "array", items: { type: "string" } },
-                prompt: { type: "string" },
-                leftLabel: { type: "string" },
-                rightLabel: { type: "string" },
-                left: { type: "array", minItems: 3, maxItems: 6, items: { type: "string" } },
-                right: { type: "array", minItems: 4, maxItems: 8, items: { type: "string" } },
-                correctPairs: {
-                  type: "array",
-                  minItems: 3,
-                  maxItems: 6,
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    properties: {
-                      leftIndex: { type: "integer", minimum: 0, maximum: 5 },
-                      rightIndex: { type: "integer", minimum: 0, maximum: 7 }
-                    },
-                    required: ["leftIndex","rightIndex"]
-                  }
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            // discriminator
+            type: { type: "string", enum: ["single", "multi", "pbq-order", "pbq-match"] },
+
+            // objective tagging
+            domain: { type: "string" },
+            objectiveId: { type: "string" },
+            objectiveTitle: { type: "string" },
+            objectiveBullets: { type: "array", items: { type: "string" } },
+
+            // stem + rationale
+            prompt: { type: "string" },
+            explanation: { type: "string" },
+
+            // MCQ / multi-select
+            options: { type: "array", minItems: 4, maxItems: 6, items: { type: "string" } },
+            correctIndices: { type: "array", minItems: 1, maxItems: 3, items: { type: "integer", minimum: 0, maximum: 5 } },
+
+            // PBQ order
+            orderItems: { type: "array", minItems: 4, maxItems: 8, items: { type: "string" } },
+            correctOrder: { type: "array", minItems: 4, maxItems: 8, items: { type: "integer", minimum: 0, maximum: 7 } },
+
+            // PBQ match
+            leftLabel: { type: "string" },
+            rightLabel: { type: "string" },
+            left: { type: "array", minItems: 3, maxItems: 6, items: { type: "string" } },
+            right: { type: "array", minItems: 3, maxItems: 6, items: { type: "string" } },
+            correctPairs: {
+              type: "array",
+              minItems: 3,
+              maxItems: 6,
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  leftIndex: { type: "integer", minimum: 0, maximum: 5 },
+                  rightIndex: { type: "integer", minimum: 0, maximum: 5 }
                 },
-                explanation: { type: "string" }
-              },
-              required: ["type","domain","objectiveId","objectiveTitle","objectiveBullets","prompt","leftLabel","rightLabel","left","right","correctPairs","explanation"]
+                required: ["leftIndex", "rightIndex"]
+              }
             }
-          ]
+          },
+          required: ["type", "domain", "objectiveId", "objectiveTitle", "objectiveBullets", "prompt", "explanation"]
         }
       }
     },
@@ -182,6 +161,11 @@ async function callOpenAI(model: string, items: PlanItem[], difficulty: Difficul
     "Write ORIGINAL practice questions aligned to the provided objective. Do NOT reproduce copyrighted exam content.",
     "Keep prompts concise and realistic (help-desk / technician scenarios).",
     "Difficulty rules:",
+    "Output rules per type:",
+    "- single: include options (4-6) and correctIndices with exactly 1 index.",
+    "- multi: include options (4-6) and correctIndices with 2-3 indices.",
+    "- pbq-order: include orderItems (4-8) and correctOrder as index order over orderItems.",
+    "- pbq-match: include leftLabel/rightLabel, left/right lists, and correctPairs (index pairs).",
     "- easy: straightforward, minimal ambiguity; distractors clearly wrong; no tricky wording.",
     "- medium: exam-like; moderate scenario detail; plausible distractors; one clear best answer.",
     "- hard: deeper reasoning within the objective; closer distractors; multi-step scenarios; avoid trick questions.",
