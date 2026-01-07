@@ -7,6 +7,7 @@ import { AnswerMap, ExamResult, ExamSession, Question } from "./examTypes";
 import { scoreExam } from "./scoring";
 import { EXAM_DURATION_SECONDS, EXAM_QUESTION_COUNT, buildPlan, createEmptySession, normalizeQuestions } from "./sessionPlanner";
 import { generateQuestions } from "./aiClient";
+import { buildOfflineQuestions } from "./offlineBank";
 
 type Screen = "setup" | "generating" | "exam" | "review" | "results" | "analytics";
 const SESSION_KEY = "comptia_a_session_ai_v1";
@@ -24,6 +25,8 @@ type Persisted = {
   pbqCount?: number;
   showObjectiveHints?: boolean;
   difficulty?: "easy" | "medium" | "hard";
+  generationMode?: "ai" | "offline";
+  autoFallbackOffline?: boolean;
 };
 
 
@@ -60,6 +63,8 @@ export default function App() {
   const [pbqCount, setPbqCount] = useState(5);
   const [showObjectiveHints, setShowObjectiveHints] = useState(false);
   const [difficulty, setDifficulty] = useState<"easy" | "medium" | "hard">("medium");
+  const [generationMode, setGenerationMode] = useState<"ai" | "offline">("ai");
+  const [autoFallbackOffline, setAutoFallbackOffline] = useState(true);
 
   const [session, setSession] = useState<ExamSession | null>(null);
   const [idx, setIdx] = useState(0);
@@ -113,9 +118,11 @@ export default function App() {
       pbqCount,
       showObjectiveHints,
       difficulty,
+      generationMode,
+      autoFallbackOffline,
     };
     writeJson(SESSION_KEY, payload);
-  }, [screen, core, session, remainingSeconds, answers, flagged, pbqState, result, pbqCount, showObjectiveHints, difficulty]);
+  }, [screen, core, session, remainingSeconds, answers, flagged, pbqState, result, pbqCount, showObjectiveHints, difficulty, generationMode, autoFallbackOffline]);
 
   useEffect(() => {
     if (screen !== "exam" || !session) {
@@ -232,6 +239,29 @@ async function runGeneration(g: GenerationPersisted) {
     setScreen("exam");
   } catch (e: any) {
     const msg = e?.name === "AbortError" ? "Paused." : (e?.message || String(e));
+
+    // If the AI backend is unavailable, optionally fall back to the offline question bank.
+    if (e?.name !== "AbortError" && autoFallbackOffline) {
+      // Clear AI generation state
+      saveGeneration(null);
+      setResumeGen(null);
+
+      const offline = buildOfflineQuestions(g.core, g.sessionId, g.config, g.plan);
+      const finalSession = { ...createEmptySession(g.core, g.config), sessionId: g.sessionId, questions: offline };
+
+      setSession(finalSession);
+      setIdx(0);
+      setAnswers({});
+      setFlagged({});
+      setPbqState({});
+      setResult(null);
+      setRemainingSeconds(EXAM_DURATION_SECONDS);
+
+      setScreen("exam");
+      alert(`AI generation failed, so the app switched to the offline question bank. Details: ${msg}`);
+      return;
+    }
+
     const updated: GenerationPersisted = { ...g, rawItems: items, nextIndex, lastError: msg };
     saveGeneration(updated);
     setResumeGen(updated);
@@ -263,6 +293,33 @@ async function startNewSession(selectedCore: CoreId) {
     const batchSize = 10;
     const sessionId = createEmptySession(selectedCore, config).sessionId;
 
+    // Reset local exam state
+    setSession(null);
+    setIdx(0);
+    setAnswers({});
+    setFlagged({});
+    setPbqState({});
+    setResult(null);
+    setRemainingSeconds(EXAM_DURATION_SECONDS);
+
+    if (generationMode === "offline") {
+      // Clear any in-progress AI generation
+      saveGeneration(null);
+      setResumeGen(null);
+
+      const offline = buildOfflineQuestions(selectedCore, sessionId, config, plan);
+
+      const finalSession = {
+        ...createEmptySession(selectedCore, config),
+        sessionId,
+        questions: offline,
+      };
+
+      setSession(finalSession);
+      setScreen("exam");
+      return;
+    }
+
     const g: GenerationPersisted = {
       sessionId,
       core: selectedCore,
@@ -277,20 +334,11 @@ async function startNewSession(selectedCore: CoreId) {
     saveGeneration(g);
     setResumeGen(g);
 
-    // Reset local exam state (questions will be set when generation completes)
-    setSession(null);
-    setIdx(0);
-    setAnswers({});
-    setFlagged({});
-    setPbqState({});
-    setResult(null);
-    setRemainingSeconds(EXAM_DURATION_SECONDS);
-
     setGenProgress({ done: 0, total: plan.length, message: "Planning..." });
     runGeneration(g);
   }
 
-  function openReview() {
+  function openReview() {() {
     setScreen("review");
   }
 
@@ -397,6 +445,41 @@ return (
           <p className="muted">
             This app generates a new exam session using AI. Explanations are hidden until you submit.
           </p>
+          <div className="row" style={{ marginTop: 10 }}>
+            <div className="pill">
+              <span className="muted">Generation mode</span>
+              <label className="radio" style={{ marginLeft: 12 }}>
+                <input
+                  type="radio"
+                  checked={generationMode === "ai"}
+                  onChange={() => setGenerationMode("ai")}
+                />
+                <span><b>AI</b></span>
+              </label>
+              <label className="radio" style={{ marginLeft: 12 }}>
+                <input
+                  type="radio"
+                  checked={generationMode === "offline"}
+                  onChange={() => setGenerationMode("offline")}
+                />
+                <span><b>Offline bank</b></span>
+              </label>
+            </div>
+
+            <label className="checkbox" style={{ marginLeft: "auto" }}>
+              <input
+                type="checkbox"
+                checked={autoFallbackOffline}
+                onChange={() => setAutoFallbackOffline((v) => !v)}
+                disabled={generationMode === "offline"}
+              />
+              <span>
+                <b>Auto-fallback to offline</b>
+                <div className="muted small">If AI fails, continue with offline questions</div>
+              </span>
+            </label>
+          </div>
+
 
           <div className="row">
             <label className="radio">

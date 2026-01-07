@@ -22,7 +22,14 @@ export type Question = {
 
   pbq?:
     | { kind: "order"; items: { id: string; text: string }[] }
-    | { kind: "match"; leftLabel: string; rightLabel: string; left: { id: string; text: string }[]; right: { id: string; text: string }[] };
+    | {
+        kind: "match";
+        leftLabel: string;
+        rightLabel: string;
+        left: { id: string; text: string }[];
+        right: { id: string; text: string }[];
+      };
+};
 };
 
 export type Difficulty = "easy" | "medium" | "hard";
