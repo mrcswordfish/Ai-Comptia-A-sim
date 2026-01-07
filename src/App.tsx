@@ -307,7 +307,62 @@ async function startNewSession(selectedCore: CoreId) {
     }
   }
 
-  return (
+  
+  function goTo(next: number) {
+    if (!session) return;
+    const max = session.questions.length - 1;
+    const clamped = Math.max(0, Math.min(max, next));
+    setIdx(clamped);
+  }
+
+  function toggleFlag(qid: string) {
+    setFlagged((prev) => ({ ...prev, [qid]: !prev[qid] }));
+  }
+
+  function setSingleAnswer(q: Question, optionId: string) {
+    setAnswers((prev) => ({ ...prev, [q.id]: [optionId] }));
+  }
+
+  function toggleMultiAnswer(q: Question, optionId: string) {
+    setAnswers((prev) => {
+      const cur = prev[q.id] ?? [];
+      const next = cur.includes(optionId) ? cur.filter((x) => x !== optionId) : [...cur, optionId];
+      return { ...prev, [q.id]: next };
+    });
+  }
+
+  function cancelGeneration() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    // Keep saved generation state in localStorage so the user can resume.
+    setScreen("setup");
+  }
+
+  function resetAll() {
+    // Stop timers / generation
+    abortRef.current?.abort();
+    abortRef.current = null;
+    if (timerRef.current) window.clearInterval(timerRef.current);
+    timerRef.current = null;
+
+    // Clear persisted state
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(GENERATION_KEY);
+
+    // Reset UI state
+    setScreen("setup");
+    setSession(null);
+    setIdx(0);
+    setAnswers({});
+    setFlagged({});
+    setPbqState({});
+    setResult(null);
+    setRemainingSeconds(EXAM_DURATION_SECONDS);
+    setGenProgress({ done: 0, total: EXAM_QUESTION_COUNT, message: "" });
+    setResumeGen(null);
+  }
+
+return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
