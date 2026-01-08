@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Help – CompTIA A+ Practice Exam Simulator</title>
+  <style>
+    body{font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width:900px; margin:30px auto; padding:0 16px; line-height:1.55}
+    code, pre{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace}
+    pre{background:#0b0f14; color:#e7eef8; padding:14px; border-radius:12px; overflow:auto}
+    h1{margin-top:0}
+  </style>
+</head>
+<body>
+  <h1>Help / Deployment</h1>
+  <p>This build is a <b>static</b> site (no server). It runs on Vercel, GitHub Pages, Netlify, or any static host.</p>
+
+  <h2>Deploy to Vercel (recommended)</h2>
+  <ol>
+    <li>Push this folder to a GitHub repository.</li>
+    <li>In Vercel: <b>New Project → Import Git Repository</b>.</li>
+    <li>Framework Preset: <b>Other</b> (or “Static Site”).</li>
+    <li>Build Command: <b>None</b></li>
+    <li>Output Directory: <b>.</b></li>
+    <li>Deploy.</li>
+  </ol>
+
+  <h2>Run locally</h2>
+  <p>Because browsers restrict local JSON loading from <code>file://</code>, use a local dev server.</p>
+  <pre>npm install -g serve
+serve .</pre>
+
+  <h2>Question bank & objectives</h2>
+  <ul>
+    <li><code>data/core1_bank.json</code> and <code>data/core2_bank.json</code> are the static banks.</li>
+    <li><code>data/objectives_core1.json</code> and <code>data/objectives_core2.json</code> are extracted from the official objective PDFs you provided (best-effort parsing).</li>
+  </ul>
+
+  <h2>Notes</h2>
+  <ul>
+    <li>Timer and attempts are stored in your browser (localStorage).</li>
+    <li>No API key is required.</li>
+  </ul>
+</body>
+</html>
