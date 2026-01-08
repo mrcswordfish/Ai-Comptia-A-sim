@@ -142,19 +142,37 @@ function buildSessionQuestions(core) {
   const weightMap = state.domainWeights[core];
   const quotas = computeDomainQuotas(weightMap, TOTAL_Q);
 
-  const byDomain = {};
-  for (const q of bank) {
-    const d = q.domain?.code || "0.0";
-    byDomain[d] = byDomain[d] || [];
-    if (matchDifficulty(q, state.difficulty)) byDomain[d].push(q);
+  // Build a difficulty-filtered pool first. If it's too small to create a full,
+  // unique 90-question session, automatically broaden to all difficulties.
+  const diff = state.difficulty || "mixed";
+  let effectiveDiff = diff;
+
+  const poolByDomain = (difficulty) => {
+    const byDomain = {};
+    for (const q of bank) {
+      const d = q.domain?.code || "0.0";
+      byDomain[d] = byDomain[d] || [];
+      if (matchDifficulty(q, difficulty)) byDomain[d].push(q);
+    }
+    return byDomain;
+  };
+
+  let byDomain = poolByDomain(effectiveDiff);
+  const available = Object.values(byDomain).reduce((acc, arr) => acc + arr.length, 0);
+  if (available < TOTAL_Q) {
+    // Not enough unique questions at this difficulty level (e.g., "hard").
+    // Fall back to mixed instead of repeating questions.
+    effectiveDiff = "mixed";
+    byDomain = poolByDomain(effectiveDiff);
   }
 
   const chosen = [];
   const usedIds = new Set();
 
+  // 1) Try to satisfy domain quotas (best-effort).
   for (const [domain, need] of Object.entries(quotas)) {
-    const pool = shuffle(byDomain[domain] || []);
-    for (const q of pool) {
+    const domainPool = shuffle(byDomain[domain] || []);
+    for (const q of domainPool) {
       if (chosen.length >= TOTAL_Q) break;
       if (chosen.filter(x => x.domain.code === domain).length >= need) break;
       if (usedIds.has(q.id)) continue;
@@ -163,9 +181,9 @@ function buildSessionQuestions(core) {
     }
   }
 
-  // Fill remaining from any domain
+  // 2) Fill remaining from the entire bank at effective difficulty, without repeats.
   if (chosen.length < TOTAL_Q) {
-    const pool = shuffle(bank.filter(q => matchDifficulty(q, state.difficulty)));
+    const pool = shuffle(bank.filter(q => matchDifficulty(q, effectiveDiff)));
     for (const q of pool) {
       if (chosen.length >= TOTAL_Q) break;
       if (usedIds.has(q.id)) continue;
@@ -174,9 +192,20 @@ function buildSessionQuestions(core) {
     }
   }
 
-  // Still short? allow repeats (rare)
-  while (chosen.length < TOTAL_Q && bank.length > 0) {
-    chosen.push(bank[randInt(bank.length)]);
+  // 3) As a final fallback, fill from *any* remaining questions (still no repeats).
+  if (chosen.length < TOTAL_Q) {
+    const pool = shuffle(bank);
+    for (const q of pool) {
+      if (chosen.length >= TOTAL_Q) break;
+      if (usedIds.has(q.id)) continue;
+      chosen.push(q);
+      usedIds.add(q.id);
+    }
+  }
+
+  // If we still cannot reach TOTAL_Q, the bank is too small.
+  if (chosen.length < TOTAL_Q) {
+    throw new Error(`Question bank too small to build a unique session (needed ${TOTAL_Q}, got ${chosen.length}).`);
   }
 
   return shuffle(chosen).map((q, idx) => ({
@@ -186,7 +215,6 @@ function buildSessionQuestions(core) {
     flagged: false,
   }));
 }
-
 function newSession(core) {
   const seed = Math.random().toString(16).slice(2);
   return {
